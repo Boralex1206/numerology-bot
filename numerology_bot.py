@@ -9,6 +9,9 @@ import os
 import re
 import logging
 from datetime import datetime
+from fastapi import FastAPI, Request
+from telegram.ext import Application
+import uvicorn
 
 logging.basicConfig(level=logging.INFO)
 
@@ -161,18 +164,39 @@ async def process_day(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Ваше число: {number}\n\n{result}", reply_markup=main_menu)
     return ConversationHandler.END
 
-if __name__ == '__main__':
-    app = ApplicationBuilder().token(os.environ.get("TOKEN")).build()
+# --- WEBHOOK DEPLOY (Render) ---
+TOKEN = os.environ.get("TOKEN")
+WEBHOOK_HOST = os.environ.get("RENDER_EXTERNAL_URL") or "https://numerology-bot.onrender.com"
+WEBHOOK_PATH = f"/webhook/{TOKEN}"
+WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
+app = FastAPI()
+application = ApplicationBuilder().token(TOKEN).build()
+
+@app.post(WEBHOOK_PATH)
+async def telegram_webhook(req: Request):
+    update = Update.de_json(await req.json(), application.bot)
+    await application.update_queue.put(update)
+    return "ok"
+
+@app.on_event("startup")
+async def on_startup():
+    await application.bot.set_webhook(WEBHOOK_URL)
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(handle_callback))
     conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)],
         states={ASK_DAY: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_day)]},
         fallbacks=[]
     )
+    application.add_handler(conv_handler)
+    await application.initialize()
+    await application.start()
+    logging.info("🚀 Бот запущен через Webhook")
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(conv_handler)
-    app.add_handler(CallbackQueryHandler(handle_callback))
+@app.on_event("shutdown")
+async def on_shutdown():
+    await application.stop()
+    await application.shutdown()
 
-    print("Бот запущен...")
-    app.run_polling()
+
