@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO)
 
 # --- Константы ---
 ASK_DAY = range(1)[0]
-ADMIN_ID = 5786594975  # Замени на свой Telegram ID
+ADMIN_ID = 5786594975
 TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
     raise RuntimeError("Переменная окружения TOKEN не установлена!")
@@ -137,13 +137,12 @@ application = ApplicationBuilder().token(TOKEN).build()
 @app.post(WEBHOOK_PATH)
 async def webhook_handler(request: Request):
     data = await request.json()
-    update = Update(**data)
+    update = Update.de_json(data, application.bot)
     await application.update_queue.put(update)
     return {"ok": True}
 
 @app.on_event("startup")
 async def startup():
-    await application.initialize()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(handle_callback))
     conv = ConversationHandler(
@@ -153,6 +152,7 @@ async def startup():
     )
     application.add_handler(conv)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    await application.initialize()
     await application.start()
     await application.bot.set_webhook(WEBHOOK_URL)
     logging.info("🚀 Бот запущен через Webhook")
